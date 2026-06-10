@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v0.5.0)'
+        required: true
+        type: string
+      pre_release:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -27,25 +38,40 @@ jobs:
           version: 8
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION=${{ github.event.inputs.version }}
+          else
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
 
       - name: Build Chrome extension
         working-directory: extension
         run: |
           npm run build
           npm run zip
+        env:
+          NODE_ENV: production
 
       - name: Build Firefox extension
         working-directory: extension
         run: |
           npm run build:firefox
           npm run zip:firefox
+        env:
+          NODE_ENV: production
 
-      - name: Extract version from tag
-        id: version
+      - name: List built artifacts
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "=== Built artifacts ==="
+          ls -lah extension/.output/ || echo "No .output directory"
+          find extension -name "*.zip" -type f 2>/dev/null || echo "No zip files found"
 
       - name: Generate Release Notes
         id: release_notes
@@ -79,32 +105,44 @@ jobs:
 
           **100% 离线** — 零网络请求
 
+          | 功能 | v0.4.0 | v0.5.0 |
+          |------|--------|--------|
+          | 列表匹配 | `/v1/check` | 本地 blacklist |
+          | 申诉 | POST `/v1/appeal` | GitHub Issue |
+          | 隐藏 | X Block API | 本地 DOM |
+
+          ## ✅ 测试
+
+          - TypeScript strict + Biome lint ✅
+          - 9 条 edge 端点测试 ✅
+          - Bloom FPR + golden-vector ✅
+
           ---
 
           **首次完全离线发布。** 所有智能在你的浏览器中运行，零外呼。🚀
           NOTES
           echo "body_file=/tmp/release-body.md" >> $GITHUB_OUTPUT
 
-      - name: Check artifact paths
-        run: |
-          echo "Looking for artifacts..."
-          ls -la extension/.output/ || echo "Output directory not found"
-          find extension -name "*.zip" -type f || echo "No zip files found"
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.version }}
           files: |
             extension/.output/mxga-extension-${{ steps.version.outputs.version }}-chrome.zip
             extension/.output/mxga-extension-${{ steps.version.outputs.version }}-firefox.zip
           body_path: ${{ steps.release_notes.outputs.body_file }}
           draft: false
-          prerelease: false
+          prerelease: ${{ github.event.inputs.pre_release || false }}
           fail_on_unmatched_files: false
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify Release Created
+      - name: Release Summary
         run: |
-          echo "Release created for tag: ${{ steps.version.outputs.version }}"
-          echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}"
+          echo "✅ Release created successfully!"
+          echo "📦 Version: ${{ steps.version.outputs.version }}"
+          echo "🔗 URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}"
+          echo "📁 Files uploaded:"
+          echo "  - mxga-extension-${{ steps.version.outputs.version }}-chrome.zip"
+          echo "  - mxga-extension-${{ steps.version.outputs.version }}-firefox.zip"
