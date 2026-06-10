@@ -1,0 +1,60 @@
+name: Build & Release Extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build Chrome extension
+        working-directory: extension
+        run: |
+          npm run build
+          npm run zip
+
+      - name: Build Firefox extension
+        working-directory: extension
+        run: |
+          npm run build:firefox
+          npm run zip:firefox
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            extension/.output/mxga-extension-${{ steps.version.outputs.version }}-chrome.zip
+            extension/.output/mxga-extension-${{ steps.version.outputs.version }}-firefox.zip
+          body_path: .release-notes-v0.5.0.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
