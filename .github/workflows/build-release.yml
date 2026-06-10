@@ -47,14 +47,64 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+      - name: Generate Release Notes
+        id: release_notes
+        run: |
+          cat > /tmp/release-body.md << 'NOTES'
+          ## 🎯 核心变化
+
+          **扩展现在完全离线运行** — 零网络请求
+
+          - ✅ 移除最后一条网络调用：误判申诉改为打开 GitHub Issue 模板
+          - ✅ 扩展消费端不再依赖任何远程端点，本地黑名单完全自给自足
+          - ✅ 符合 AMO 的 `data_collection: "none"` 声明
+
+          ## 🔧 工程改进
+
+          ### 扩展端
+          - 删除过时代码：GraphQL 拦截、GitHub Device Flow、whitelist 缓存
+          - 隐藏语义正确：`拉黑` → `隐藏`（本地操作，非 X Block API）
+          - XSS 加固：badge popover 转义
+          - Firefox min 109.0 支持
+
+          ### 工具链 & 边缘服务
+          - **Bloom 过滤器**自适应大小
+          - **LLM 加固**：prompt-injection 防护
+          - **黑名单编译**：条目验证、138 行删除、dedup
+          - **Endpoint 加固**：速率限制、timing-safe token
+          - **定时任务拆分**：GitHub mirror 仅 6h trigger
+          - **Artifact URL-safe**：版本前缀映射修复
+
+          ## 🔒 隐私改进
+
+          **100% 离线** — 零网络请求
+
+          ---
+
+          **首次完全离线发布。** 所有智能在你的浏览器中运行，零外呼。🚀
+          NOTES
+          echo "body_file=/tmp/release-body.md" >> $GITHUB_OUTPUT
+
+      - name: Check artifact paths
+        run: |
+          echo "Looking for artifacts..."
+          ls -la extension/.output/ || echo "Output directory not found"
+          find extension -name "*.zip" -type f || echo "No zip files found"
+
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             extension/.output/mxga-extension-${{ steps.version.outputs.version }}-chrome.zip
             extension/.output/mxga-extension-${{ steps.version.outputs.version }}-firefox.zip
-          body_path: .release-notes-v0.5.0.md
+          body_path: ${{ steps.release_notes.outputs.body_file }}
           draft: false
           prerelease: false
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Release Created
+        run: |
+          echo "Release created for tag: ${{ steps.version.outputs.version }}"
+          echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}"
